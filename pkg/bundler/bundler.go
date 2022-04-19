@@ -21,7 +21,11 @@ type PckMetadata struct {
 	Platform         string `json:"platform"`
 	OriginRepository string `json:"origin_repo"`
 	Gamename         string `json:"game_name"`
+	MainScene        string `json:"main_scene"`
 }
+
+// TODO this should by configuable via os.Getenv
+const godotBinary string = "/home/devnull/Downloads/Godot_v3.4.4-stable_mono_x11_64/Godot_v3.4.4-stable_mono_x11.64"
 
 // TODO maybe build a one thread worker for this? to not get race conditions?? if new entries can be added via HTTP ???
 func BuildPck(gitURL string) []*PckMetadata {
@@ -32,6 +36,12 @@ func BuildPck(gitURL string) []*PckMetadata {
 		logrus.WithError(err).Error("unable to clone repository")
 		return []*PckMetadata{}
 	}
+	defer func() {
+		_, err := os.Stat("/tmp/foo")
+		if err == nil {
+			os.RemoveAll("/tmp/foo")
+		}
+	}()
 
 	listOfIndicationOfCSharp, err := filepath.Glob("/tmp/foo/*.csproj")
 	if err != nil {
@@ -41,7 +51,7 @@ func BuildPck(gitURL string) []*PckMetadata {
 	if len(listOfIndicationOfCSharp) > 0 {
 		logrus.Info("found csproj... building solution")
 		// YO. this is a c sharp godot project. so lets run --build-solution
-		cmd := exec.Command("/home/devnull/Downloads/Godot_v3.5-beta3_x11.64", "--build-solution", "--no-window", "-q", "--path", "/tmp/foo")
+		cmd := exec.Command(godotBinary, "--build-solution", "--no-window", "-q", "--path", "/tmp/foo")
 		cmd.Dir = "/tmp/foo"
 		cmd.Run()
 	}
@@ -52,7 +62,7 @@ func BuildPck(gitURL string) []*PckMetadata {
 		return []*PckMetadata{}
 	}
 
-	gameName := readGamename()
+	gameName, mainScene := readGamename()
 	if gameName == "" {
 		return []*PckMetadata{}
 	}
@@ -65,7 +75,7 @@ func BuildPck(gitURL string) []*PckMetadata {
 
 		// godot is here
 		// /home/devnull/Downloads/Godot_v3.5-beta3_x11.64
-		cmd := exec.Command("/home/devnull/Downloads/Godot_v3.5-beta3_x11.64", "--no-window", "--export-pack", exportName, "/tmp/foo/export.pck")
+		cmd := exec.Command(godotBinary, "--no-window", "--export-pack", exportName, "/tmp/foo/export.pck")
 		cmd.Dir = "/tmp/foo"
 		cmd.Stderr = logWriter
 		cmd.Stdout = cmd.Stderr
@@ -74,9 +84,9 @@ func BuildPck(gitURL string) []*PckMetadata {
 			panic(err)
 		}
 
-		gameName := strings.Replace(path.Base(gitURL), ".git", "", 1)
-		urlFriendlyPlatformName := makeUrlFriendly(exportName)
-		pckName := fmt.Sprintf("%s-%s.pck", gameName, urlFriendlyPlatformName)
+		urlFriendlyGamename := strings.Replace(path.Base(gitURL), ".git", "", 1)
+		urlFriendlyPlatformName := makeUrlFriendly(platformName)
+		pckName := fmt.Sprintf("%s-%s.pck", urlFriendlyGamename, urlFriendlyPlatformName)
 		targetPath := filepath.Join(os.Getenv("STORAGE_PATH"), "pcks", pckName)
 		logrus.WithField("target_path", targetPath).Info("build pck")
 
@@ -87,8 +97,10 @@ func BuildPck(gitURL string) []*PckMetadata {
 
 		pckFiles = append(pckFiles, &PckMetadata{
 			Filename:         pckName,
-			Platform:         platformName,
+			Platform:         urlFriendlyPlatformName,
 			OriginRepository: gitURL,
+			Gamename:         gameName,
+			MainScene:        mainScene,
 		})
 	}
 
@@ -148,17 +160,25 @@ func readPresetNames() [][2]string {
 	}
 }
 
-func readGamename() string {
+func readGamename() (string, string) {
 	if _, err := os.Stat("/tmp/foo/project.godot"); err != nil {
-		return ""
+		return "", ""
 	}
 
-	godotProjectCfg := ini.Load("/tmp/foo/export_presets.cfg")
+	godotProjectCfg := ini.Load("/tmp/foo/project.godot")
 	name, err := godotProjectCfg.GetValue("application", "config/name")
 	if err != nil {
 		logrus.WithError(err).Error("unable to get game name")
-		return ""
+		return "", ""
 	}
+	name = strings.ReplaceAll(name, "\"", "")
 
-	return name
+	initialScene, err := godotProjectCfg.GetValue("application", "run/main_scene")
+	if err != nil {
+		logrus.WithError(err).Error("unable to get main scene")
+		return "", ""
+	}
+	initialScene = strings.ReplaceAll(initialScene, "\"", "")
+
+	return name, initialScene
 }

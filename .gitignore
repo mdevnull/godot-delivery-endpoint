@@ -1,1 +1,4 @@
 .env.yaml
+cache.json
+pcks/*
+!pcks/.gitkeep
