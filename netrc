@@ -1,0 +1,7 @@
+machine github.com
+login devnull-twitch
+password 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
+
+machine api.github.com
+login devnull-twitch
+password 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
