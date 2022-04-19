@@ -24,8 +24,7 @@ type PckMetadata struct {
 	MainScene        string `json:"main_scene"`
 }
 
-// TODO this should by configuable via os.Getenv
-const godotBinary string = "/home/devnull/Downloads/Godot_v3.4.4-stable_mono_x11_64/Godot_v3.4.4-stable_mono_x11.64"
+var godotBinary string = os.Getenv("GODOT_BINARY")
 
 // TODO maybe build a one thread worker for this? to not get race conditions?? if new entries can be added via HTTP ???
 func BuildPck(gitURL string) []*PckMetadata {
